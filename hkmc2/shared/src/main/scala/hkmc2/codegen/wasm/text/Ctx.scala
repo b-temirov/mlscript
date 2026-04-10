@@ -15,7 +15,7 @@ import Instructions.*
 
 import scala.annotation.{nowarn, targetName}
 import scala.collection.immutable.ListMap
-import scala.collection.mutable.{ArrayBuffer as ArrayBuf, Map as MutMap}
+import scala.collection.mutable.{ArrayBuffer as ArrayBuf, Map as MutMap, LinkedHashSet}
 import scala.reflect.ClassTag
 
 /** Metadata for a REPL binding that can be imported by later Wasm modules. */
@@ -445,7 +445,7 @@ class Ctx extends ToWat:
   private val singletonByBms = MutMap.empty[BlockMemberSymbol, Ctx.SingletonInfo]
   private val singletonByIsym = MutMap.empty[ModuleOrObjectSymbol, Ctx.SingletonInfo]
   private val singletonInitActions = ArrayBuf.empty[Expr]
-  private val runtimeClassTags = MutMap.empty[BlockMemberSymbol, Int]
+  private val runtimeClassTags = MutMap.empty[BlockMemberSymbol, LinkedHashSet[Int]]
 
   private def imports: Seq[Import[?]] =
     val importedFuncs = funcs.collect:
@@ -528,6 +528,12 @@ class Ctx extends ToWat:
   def getTypeInfo_!(typeref: TypeIdx | BlockMemberSymbol): TypeInfo =
     getTypeInfo(typeref).getOrElse:
       lastWords(s"Missing type definition for ${typeref.prettyString}")
+
+  def registerRuntimeClassTags(sym: BlockMemberSymbol, tags: LinkedHashSet[Int]): Unit =
+    runtimeClassTags(sym) = tags
+
+  def getRuntimeClassTags(sym: BlockMemberSymbol): Opt[LinkedHashSet[Int]] =
+    runtimeClassTags.get(sym)
 
   @deprecated("Use the `Import[ExternType.Func]` overload instead.")
   def addFunctionImport(sym: Opt[Symbol], funcImport: FuncImport): FuncIdx =
@@ -800,13 +806,9 @@ class Ctx extends ToWat:
   /** Returns the singleton initialization actions in deterministic insertion order. */
   def getSingletonInitActions: Seq[Expr] = singletonInitActions.toSeq
 
-  /** Records the runtime class tag for `sym`. */
-  def registerRuntimeClassTag(sym: BlockMemberSymbol, tag: Int): Unit =
-    runtimeClassTags(sym) = tag
-
   /** Returns the runtime class tag for `sym`. */
   def getRuntimeClassTag(sym: BlockMemberSymbol): Opt[Int] =
-    runtimeClassTags.get(sym)
+    getRuntimeClassTags(sym).flatMap(_.headOption)
 
   /** Same as [[getRuntimeClassTag]] but throws if no runtime tag is known. */
   def getRuntimeClassTag_!(sym: BlockMemberSymbol): Int =
